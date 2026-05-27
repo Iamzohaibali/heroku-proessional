@@ -5,7 +5,7 @@ const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
   res.json({
-    message: "Hello from Heroku!",
+    message: "Version 2.0 - Hello, World!",
     environment: process.env.NODE_ENV || "development",
   });
 });
