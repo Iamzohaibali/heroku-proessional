@@ -38,6 +38,33 @@ app.get("/ci-cd", (req, res) => {
   });
 });
 
+app.get("/system-info", (req, res) => {
+  res.json({
+    app: {
+      name: "Heroku Learning API",
+      version: "2.0.0",
+      uptimeSeconds: process.uptime(),
+    },
+    server: {
+      nodeVersion: process.version,
+      platform: process.platform,
+      architecture: process.arch,
+      memoryUsage: process.memoryUsage(),
+    },
+    request: {
+      method: req.method,
+      url: req.originalUrl,
+      ip: req.ip,
+      userAgent: req.get("user-agent"),
+    },
+    environment: {
+      NODE_ENV: process.env.NODE_ENV || "development",
+      PORT: process.env.PORT,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
