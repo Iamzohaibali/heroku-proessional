@@ -4,8 +4,59 @@ const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
+const pino = require("pino");
+const pinoHttp = require("pino-http");
 
 const app = express();
+
+/*
+|--------------------------------------------------------------------------
+| PINO LOGGER CONFIGURATION
+|--------------------------------------------------------------------------
+*/
+
+// Configure Pino logger
+const logger = pino({
+  level: process.env.LOG_LEVEL || "info",
+  formatters: {
+    level: (label) => {
+      return { level: label };
+    },
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+  ...(process.env.NODE_ENV !== "production" && {
+    transport: {
+      target: "pino-pretty",
+      options: {
+        colorize: true,
+        translateTime: "SYS:standard",
+        ignore: "pid,hostname",
+      },
+    },
+  }),
+});
+
+// Pino HTTP middleware for automatic request logging
+const pinoMiddleware = pinoHttp({
+  logger,
+  autoLogging: {
+    ignore: (req) => req.url === "/health" || req.url === "/", // Don't log health checks
+  },
+  customLogLevel: function (req, res, err) {
+    if (res.statusCode >= 400 && res.statusCode < 500) return "warn";
+    if (res.statusCode >= 500 || err) return "error";
+    return "info";
+  },
+  customSuccessMessage: function (req, res) {
+    return `${req.method} ${req.url} completed with ${res.statusCode}`;
+  },
+  customErrorMessage: function (req, res, err) {
+    return `${req.method} ${req.url} failed: ${err.message}`;
+  },
+});
+
+// Apply Pino HTTP middleware
+app.use(pinoMiddleware);
 
 /*
 |--------------------------------------------------------------------------
@@ -40,6 +91,7 @@ app.use((req, res, next) => {
     process.env.NODE_ENV === "production" &&
     req.headers["x-forwarded-proto"] !== "https"
   ) {
+    logger.warn({ redirect: true, from: req.url }, "Redirecting to HTTPS");
     return res.redirect(`https://${req.headers.host}${req.url}`);
   }
 
@@ -70,6 +122,7 @@ app.use(
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        logger.warn({ origin }, "CORS violation attempted");
         callback(new Error("CORS policy violation"));
       }
     },
@@ -107,6 +160,7 @@ const apiKeyMiddleware = (req, res, next) => {
   const apiKey = req.headers["x-api-key"];
 
   if (!apiKey) {
+    logger.warn({ ip: req.ip, path: req.path }, "API key missing");
     return res.status(401).json({
       success: false,
       error: "API key missing",
@@ -114,28 +168,28 @@ const apiKeyMiddleware = (req, res, next) => {
   }
 
   if (apiKey !== process.env.API_KEY) {
+    logger.warn({ ip: req.ip, path: req.path }, "Invalid API key attempted");
     return res.status(403).json({
       success: false,
       error: "Invalid API key",
     });
   }
 
+  logger.debug({ userId: req.ip }, "API key validated successfully");
   next();
 };
 
 /*
 |--------------------------------------------------------------------------
-| REQUEST LOGGER
+| REQUEST LOGGER (Replace with Pino)
 |--------------------------------------------------------------------------
 */
 
-app.use((req, res, next) => {
-  console.log(
-    `[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`
-  );
-
-  next();
-});
+// Old console.log replaced by Pino
+// app.use((req, res, next) => {
+//   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+//   next();
+// });
 
 /*
 |--------------------------------------------------------------------------
@@ -144,6 +198,7 @@ app.use((req, res, next) => {
 */
 
 app.get("/", (req, res) => {
+  logger.info({ path: "/", method: req.method }, "Root endpoint accessed");
   res.json({
     success: true,
     message: "Professional Secure API Running",
@@ -160,6 +215,7 @@ app.get("/", (req, res) => {
 */
 
 app.get("/health", (req, res) => {
+  logger.debug("Health check performed");
   res.status(200).json({
     success: true,
     status: "healthy",
@@ -175,6 +231,7 @@ app.get("/health", (req, res) => {
 */
 
 app.get("/ci-cd", (req, res) => {
+  logger.info("CI/CD verification endpoint accessed");
   res.json({
     success: true,
     message: "CI/CD pipeline working successfully",
@@ -194,6 +251,7 @@ app.get("/ci-cd", (req, res) => {
 */
 
 app.get("/system-info", apiKeyMiddleware, (req, res) => {
+  logger.info({ ip: req.ip }, "System info accessed with valid API key");
   res.json({
     success: true,
 
@@ -237,6 +295,7 @@ app.post("/api/message", (req, res) => {
 
   // Basic validation
   if (!name || typeof name !== "string") {
+    logger.warn({ body: req.body }, "Invalid name in message request");
     return res.status(400).json({
       success: false,
       error: "Valid name is required",
@@ -244,6 +303,7 @@ app.post("/api/message", (req, res) => {
   }
 
   if (!message || typeof message !== "string") {
+    logger.warn({ body: req.body }, "Invalid message in request");
     return res.status(400).json({
       success: false,
       error: "Valid message is required",
@@ -252,12 +312,14 @@ app.post("/api/message", (req, res) => {
 
   // Length validation
   if (name.length > 50 || message.length > 500) {
+    logger.warn({ nameLength: name.length, messageLength: message.length }, "Input too long");
     return res.status(400).json({
       success: false,
       error: "Input too long",
     });
   }
 
+  logger.info({ name, messageLength: message.length }, "New message received");
   res.status(201).json({
     success: true,
     data: {
@@ -275,6 +337,7 @@ app.post("/api/message", (req, res) => {
 */
 
 app.use((req, res) => {
+  logger.warn({ url: req.originalUrl, method: req.method }, "Route not found");
   res.status(404).json({
     success: false,
     error: "Route not found",
@@ -288,7 +351,12 @@ app.use((req, res) => {
 */
 
 app.use((err, req, res, next) => {
-  console.error("ERROR:", err.message);
+  logger.error({ 
+    error: err.message, 
+    stack: err.stack,
+    url: req.url,
+    method: req.method
+  }, "Global error handler triggered");
 
   // CORS errors
   if (err.message === "CORS policy violation") {
@@ -313,11 +381,19 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
+  logger.info({
+    port: PORT,
+    environment: process.env.NODE_ENV || "development",
+    nodeVersion: process.version
+  }, "🚀 Secure API Server Started");
+  
+  // Also keep console output for startup visibility
   console.log(`
 ========================================
 🚀 Secure API Server Running
 🌍 Environment: ${process.env.NODE_ENV || "development"}
 📡 Port: ${PORT}
+📝 Logger: Pino (${process.env.NODE_ENV !== "production" ? "pretty" : "JSON"})
 ========================================
   `);
 });
