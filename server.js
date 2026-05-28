@@ -58,6 +58,7 @@ const allowedOrigins = [
   "https://api.zohaibtech.dev",
   "http://localhost:3000",
   "http://localhost:5173",
+  "https://6a17e8c88e189182da0a569a--herokufrotend.netlify.app"
 ];
 
 app.use(
