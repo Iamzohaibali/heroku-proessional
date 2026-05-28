@@ -57,6 +57,7 @@ const allowedOrigins = [
   "https://www.zohaibtech.dev",
   "https://api.zohaibtech.dev",
   "http://localhost:3000",
+  "http://localhost:5173",
 ];
 
 app.use(

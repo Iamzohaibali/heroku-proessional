@@ -1,3 +1,7 @@
+# Frontend - exclude entire folder
+Frontend/
+frontend/
+
 # Logs
 logs
 *.log
